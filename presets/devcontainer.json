@@ -1,0 +1,21 @@
+{
+  "description": "devcontainer.json の initializeCommand で固定した DEVBOOTSTRAP_VERSION を更新する",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "devcontainer-bootstrap のバージョン固定 (initializeCommand)",
+      "managerFilePatterns": ["/(^|/)\\.devcontainer(/devcontainer)?\\.json$/"],
+      "matchStrings": ["DEVBOOTSTRAP_VERSION=(?<currentValue>v[0-9][^\\s\"]*)"],
+      "depNameTemplate": "imachange/container-bootstrap",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchDepNames": ["imachange/container-bootstrap"],
+      "minimumReleaseAge": "3 days",
+      "automerge": false
+    }
+  ]
+}
