@@ -30,7 +30,7 @@ func run(t *testing.T, self string, deps selector.Deps, args ...string) (code in
 	defer func() { version.Version = old }()
 
 	var out, errb bytes.Buffer
-	app := &App{Stdout: &out, Stderr: &errb, Deps: deps}
+	app := &App{Stdout: &out, Stderr: &errb, Deps: deps, Boot: stubBoot()}
 	code = app.Run(args)
 	return code, out.String(), errb.String()
 }
@@ -88,6 +88,7 @@ func TestUnknownCommand(t *testing.T) {
 	}
 }
 
+// 引数なしは bootstrap を実行する。カレントディレクトリ (internal/cli) には .devcontainer が無いので、何もせず成功する。
 func TestDefaultIsBootstrap(t *testing.T) {
 	if code, out, _ := run(t, "v1.0.0", fakeDeps("", false)); code != 0 || out != "" {
 		t.Errorf("code=%d stdout=%q", code, out)
