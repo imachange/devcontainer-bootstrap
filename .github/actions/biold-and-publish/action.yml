@@ -1,0 +1,21 @@
+name: "Build and Publish Release"
+description: "Build release binaries and upload to GitHub Release"
+
+inputs:
+  github-token:
+    description: "GitHub Token for release creation"
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: build
+      shell: bash
+      run: bash "${{ github.action_path }}/build.sh"
+
+    - name: publish
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: bash "${{ github.action_path }}/publish.sh"
