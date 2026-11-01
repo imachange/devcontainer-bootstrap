@@ -1,3 +1,4 @@
 /dist/
 /devcontainer-bootstrap
 /devcontainer-bootstrap.exe
+.DS_Store

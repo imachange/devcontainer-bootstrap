@@ -1,5 +1,5 @@
 // Package semver は、semver 2.0.0 の優先順位の比較だけを行う最小実装。
-// タグは `v` で始まる `vMAJOR.MINOR.PATCH[-prerelease][+build]` の形式に限定。
+// タグは `v` で始まる `vMAJOR.MINOR.PATCH[-prerelease]` の形式に限定。
 package semver
 
 import (
@@ -13,7 +13,7 @@ type Version struct {
 	Pre                 []string
 }
 
-// Parse は、`v1.2.3` や `v1.2.3-rc.1+build` の形式を解釈する。形式が不正なら ok=false。
+// Parse は、`v1.2.3` や `v1.2.3-rc.1` の形式を解釈する。形式が不正なら ok=false。
 func Parse(s string) (v Version, ok bool) {
 	if !strings.HasPrefix(s, "v") {
 		return Version{}, false
