@@ -5,8 +5,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/imachange/container-bootstrap/internal/selector"
-	"github.com/imachange/container-bootstrap/internal/version"
+	"github.com/imachange/devcontainer-bootstrap/internal/selector"
+	"github.com/imachange/devcontainer-bootstrap/internal/version"
 )
 
 func fakeDeps(pathVersion string, pathOK bool) selector.Deps {

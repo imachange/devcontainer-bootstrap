@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imachange/container-bootstrap/internal/semver"
+	"github.com/imachange/devcontainer-bootstrap/internal/semver"
 )
 
 // Decision は、`select` が標準出力に出す。

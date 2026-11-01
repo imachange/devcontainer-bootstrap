@@ -9,8 +9,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/imachange/container-bootstrap/internal/selector"
-	"github.com/imachange/container-bootstrap/internal/version"
+	"github.com/imachange/devcontainer-bootstrap/internal/selector"
+	"github.com/imachange/devcontainer-bootstrap/internal/version"
 )
 
 const binName = "devcontainer-bootstrap"

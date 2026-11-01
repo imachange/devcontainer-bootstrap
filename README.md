@@ -1,4 +1,4 @@
-# container-bootstrap
+# devcontainer-bootstrap
 
 dev container 起動前に、**ホスト側**で実行される初期化ツールです。プロジェクトの `.devcontainer/script/bootstrap.sh` (シム) が、このバイナリを探して (または取得して) 実行します。
 
@@ -42,7 +42,7 @@ dev container 起動前に、**ホスト側**で実行される初期化ツー�
 ```sh
 go vet ./...
 go test ./...
-go build -ldflags "-X github.com/imachange/container-bootstrap/internal/version.Version=v0.0.0-dev" -o devcontainer-bootstrap .
+go build -ldflags "-X github.com/imachange/devcontainer-bootstrap/internal/version.Version=v0.0.0-dev" -o devcontainer-bootstrap .
 ```
 
 ## リリース
@@ -50,7 +50,7 @@ go build -ldflags "-X github.com/imachange/container-bootstrap/internal/version.
 1. リポジトリの設定で、**immutable releases を有効にします** (`gh release verify-asset` が通るために必要です。過去の mutable なリリースには、後から attestation が付きません)。
 2. `v*` のタグを push すると、`.github/workflows/release.yml` が、OS / arch ごとの生バイナリをビルドして、リリースを作成します。
    - アセット名: `devcontainer-bootstrap_<タグ>_<os>_<arch>[.exe]`
-   - 下書きで作成して資産を上げてから公開します (immutable releases は、公開後に資産を追加できません)。
+   - 下書きで作成してファイルを上げてから公開します (immutable releases は、公開後にファイルを追加できません)。
 
 ## Renovate の preset
 
@@ -58,6 +58,6 @@ go build -ldflags "-X github.com/imachange/container-bootstrap/internal/version.
 
 ```json
 {
-  "extends": ["github>imachange/container-bootstrap//presets/devcontainer"]
+  "extends": ["github>imachange/devcontainer-bootstrap//presets/devcontainer"]
 }
 ```

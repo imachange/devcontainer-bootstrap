@@ -4,7 +4,7 @@ package main
 import (
 	"os"
 
-	"github.com/imachange/container-bootstrap/internal/cli"
+	"github.com/imachange/devcontainer-bootstrap/internal/cli"
 )
 
 func main() {

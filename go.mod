@@ -1,3 +1,3 @@
-module github.com/imachange/container-bootstrap
+module github.com/imachange/devcontainer-bootstrap
 
 go 1.27
