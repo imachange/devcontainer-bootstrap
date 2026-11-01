@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/imachange/devcontainer-bootstrap/internal/initscript"
@@ -144,9 +145,9 @@ func TestBootstrapUsesDefaultBuilderRepoAndPinnedVersion(t *testing.T) {
 
 func TestBootstrapSkipsDockerfileWithoutBuildOnly(t *testing.T) {
 	for name, src := range map[string]string{
-		"image":       `{"image": "ubuntu"}`,
+		"image":      `{"image": "ubuntu"}`,
 		"image+build": `{"image": "ubuntu", "build": {}}`,
-		"なし":          `{"name": "x"}`,
+		"なし":         `{"name": "x"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
@@ -214,20 +215,48 @@ func TestBootstrapSkipInitialize(t *testing.T) {
 	}
 }
 
-func TestBootstrapDockerfileErrorStopsBeforeInitialize(t *testing.T) {
+func TestBootstrapRunsInitializeEvenIfDockerfileFails(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, ".devcontainer", "devcontainer.json"), buildJSON)
 	writeFile(t, filepath.Join(root, ".devcontainer", "script", "initialize.sh"), "echo hi\n")
 	gh := &fakeGH{latest: "v1.0.0", content: "tampered\n", verifyErr: errors.New("mismatch")}
 	be := newBootEnv(gh, nil)
 	if code := be.app.Run([]string{"bootstrap", "--root", root}); code != 1 {
-		t.Errorf("code=%d, want 1", code)
+		t.Errorf("code=%d, want 1 (Dockerfile の失敗)", code)
 	}
-	if len(be.ran) != 0 {
-		t.Errorf("initialize を実行しないはず: %v", be.ran)
+	if len(be.ran) != 1 {
+		t.Errorf("Dockerfile が失敗しても、initialize は実行するはず: %v", be.ran)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".devcontainer", "Dockerfile")); err == nil {
 		t.Error("検証に失敗したのに、Dockerfile が置かれた")
+	}
+}
+
+func TestBootstrapInitializeFailureTakesPrecedence(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, ".devcontainer", "devcontainer.json"), buildJSON)
+	writeFile(t, filepath.Join(root, ".devcontainer", "script", "initialize.sh"), "exit 3\n")
+	gh := &fakeGH{latest: "v1.0.0", verifyErr: errors.New("mismatch")}
+	be := newBootEnv(gh, nil)
+	be.exit = 3
+	if code := be.app.Run([]string{"bootstrap", "--root", root}); code != 3 {
+		t.Errorf("code=%d, want 3 (initialize の終了コード)", code)
+	}
+	if len(be.ran) != 1 {
+		t.Errorf("ran = %v", be.ran)
+	}
+}
+
+func TestBootstrapRunsInitializeWhenDevcontainerJSONIsBroken(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, ".devcontainer", "devcontainer.json"), `{"build": }`)
+	writeFile(t, filepath.Join(root, ".devcontainer", "script", "initialize.sh"), "echo hi\n")
+	be := newBootEnv(&fakeGH{}, nil)
+	if code := be.app.Run([]string{"bootstrap", "--root", root}); code != 1 {
+		t.Errorf("code=%d, want 1", code)
+	}
+	if len(be.ran) != 1 {
+		t.Errorf("devcontainer.json が壊れていても、initialize は実行するはず: %v", be.ran)
 	}
 }
 
@@ -244,5 +273,108 @@ func TestBootstrapRequiresDependencies(t *testing.T) {
 	app := &App{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}
 	if code := app.Run([]string{"bootstrap"}); code != 1 {
 		t.Errorf("code=%d, want 1", code)
+	}
+}
+
+func chdir(t *testing.T, dir string) {
+	t.Helper()
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(old) })
+}
+
+func sameDir(t *testing.T, a, b string) bool {
+	t.Helper()
+	ra, err := filepath.EvalSymlinks(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rb, err := filepath.EvalSymlinks(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ra == rb
+}
+
+// .devcontainer/script や .devcontainer/bin の中から実行しても、リポジトリのルートを見つける。
+func TestBootstrapFindsRootFromSubdirectory(t *testing.T) {
+	for _, sub := range []string{
+		filepath.Join(".devcontainer", "script"),
+		filepath.Join(".devcontainer", "bin"),
+		".devcontainer",
+	} {
+		t.Run(sub, func(t *testing.T) {
+			root := t.TempDir()
+			writeFile(t, filepath.Join(root, ".devcontainer", "script", "initialize.sh"), "echo hi\n")
+			if err := os.MkdirAll(filepath.Join(root, ".devcontainer", "bin"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			chdir(t, filepath.Join(root, sub))
+
+			be := newBootEnv(&fakeGH{}, nil)
+			if code := be.app.Run([]string{"bootstrap"}); code != 0 {
+				t.Fatalf("code=%d stderr=%s", code, be.stderr)
+			}
+			if len(be.ran) != 1 {
+				t.Fatalf("initialize が実行されていない: ran=%v stderr=%s", be.ran, be.stderr)
+			}
+			if !sameDir(t, be.ran[0].Dir, root) {
+				t.Errorf("Dir = %q, want %q", be.ran[0].Dir, root)
+			}
+		})
+	}
+}
+
+func TestBootstrapRootPrecedence(t *testing.T) {
+	newRoot := func() string {
+		root := t.TempDir()
+		writeFile(t, filepath.Join(root, ".devcontainer", "script", "initialize.sh"), "echo hi\n")
+		return root
+	}
+	flagRoot, envRoot, cwdRoot := newRoot(), newRoot(), newRoot()
+	chdir(t, cwdRoot)
+
+	// --root が最優先
+	be := newBootEnv(&fakeGH{}, map[string]string{"DEVBOOTSTRAP_ROOT": envRoot})
+	be.app.Run([]string{"bootstrap", "--root", flagRoot})
+	if len(be.ran) != 1 || !sameDir(t, be.ran[0].Dir, flagRoot) {
+		t.Errorf("--root: ran=%v", be.ran)
+	}
+
+	// 次に DEVBOOTSTRAP_ROOT
+	be = newBootEnv(&fakeGH{}, map[string]string{"DEVBOOTSTRAP_ROOT": envRoot})
+	be.app.Run([]string{"bootstrap"})
+	if len(be.ran) != 1 || !sameDir(t, be.ran[0].Dir, envRoot) {
+		t.Errorf("DEVBOOTSTRAP_ROOT: ran=%v", be.ran)
+	}
+
+	// どちらも無ければ、カレントディレクトリから探す
+	be = newBootEnv(&fakeGH{}, nil)
+	be.app.Run([]string{"bootstrap"})
+	if len(be.ran) != 1 || !sameDir(t, be.ran[0].Dir, cwdRoot) {
+		t.Errorf("cwd: ran=%v", be.ran)
+	}
+}
+
+func TestBootstrapLogsRootAndWarnsWhenDevcontainerDirIsMissing(t *testing.T) {
+	root := t.TempDir()
+	be := newBootEnv(&fakeGH{}, nil)
+	if code := be.app.Run([]string{"bootstrap", "--root", root}); code != 0 {
+		t.Fatalf("code=%d", code)
+	}
+	out := be.stderr.String()
+	if !strings.Contains(out, "root="+root) {
+		t.Errorf("起動ログに root が無い: %q", out)
+	}
+	if !strings.Contains(out, "nothing to do") {
+		t.Errorf(".devcontainer が無いときの警告が無い: %q", out)
+	}
+	if len(be.ran) != 0 {
+		t.Errorf("何も実行しないはず: %v", be.ran)
 	}
 }

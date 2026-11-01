@@ -1,4 +1,4 @@
-// Package cli は、サブコマンドの振り分けを行います。
+// Package cli は、サブコマンドの振り分けを行う。
 package cli
 
 import (
@@ -61,6 +61,7 @@ Commands:
   help                    このヘルプを表示する
 
 Environment (bootstrap):
+  DEVBOOTSTRAP_ROOT             リポジトリのルート (省略時は、カレントディレクトリから上に .devcontainer を探す)
   DEVBOOTSTRAP_BUILDER_REPO     Dockerfile の取得元リポジトリ (既定: imachange/devcontainer-builder)
   DEVBOOTSTRAP_BUILDER_VERSION  Dockerfile のリリースタグ (未指定なら最新)
   DEVBOOTSTRAP_SKIP_INITIALIZE  1 なら initialize.* を実行しない
