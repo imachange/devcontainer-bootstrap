@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -105,23 +104,27 @@ func (a *App) bootstrap(args []string) int {
 }
 
 // syncDockerfile は、build 方式のときだけ、公式の Dockerfile を取得します。
+// devcontainer.json は、devcontainer-parser の優先順位で探します。
+// Dockerfile の場所は、見つかった devcontainer.json のあるディレクトリが基準です。
 func (a *App) syncDockerfile(ctx context.Context, root string) error {
-	dcDir := filepath.Join(root, ".devcontainer")
-	src, err := os.ReadFile(filepath.Join(dcDir, "devcontainer.json"))
-	if errors.Is(err, fs.ErrNotExist) {
+	spec, err := devcontainer.Load(root)
+	if errors.Is(err, devcontainer.ErrNotFound) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	spec, err := devcontainer.Parse(src)
-	if err != nil {
-		return fmt.Errorf("devcontainer.json: %w", err)
+	name := displayPath(root, spec.Path)
+	for _, n := range spec.Notices {
+		a.logf("%s", n)
+	}
+	for _, w := range spec.Warnings {
+		a.logf("Warning: %s: %s", name, w)
 	}
 	if !spec.BuildOnly {
 		return nil
 	}
-	path, err := devcontainer.DockerfilePath(dcDir, spec.Dockerfile)
+	path, err := devcontainer.DockerfilePath(filepath.Dir(spec.Path), spec.Dockerfile)
 	if err != nil {
 		return err
 	}
@@ -139,13 +142,9 @@ func (a *App) syncDockerfile(ctx context.Context, root string) error {
 	if err != nil {
 		return err
 	}
-	rel, relErr := filepath.Rel(root, path)
-	if relErr != nil {
-		rel = path
-	}
 	switch out.Result {
 	case dockerfile.Written:
-		a.logf("fetched %s from %s@%s", filepath.ToSlash(rel), out.Repo, out.Tag)
+		a.logf("fetched %s from %s@%s", displayPath(root, path), out.Repo, out.Tag)
 	case dockerfile.SkippedModified, dockerfile.Kept:
 		a.logf("Warning: %s", out.Message)
 	}
@@ -210,6 +209,15 @@ func (a *App) resolveRoot(flagValue string) (string, error) {
 		}
 		dir = parent
 	}
+}
+
+// displayPath は、ログに出すために、root からの相対パス (スラッシュ区切り) を返します。
+func displayPath(root, path string) string {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return path
+	}
+	return filepath.ToSlash(rel)
 }
 
 func exists(path string) bool {

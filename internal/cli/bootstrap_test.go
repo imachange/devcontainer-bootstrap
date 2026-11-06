@@ -143,6 +143,62 @@ func TestBootstrapUsesDefaultBuilderRepoAndPinnedVersion(t *testing.T) {
 	}
 }
 
+func TestBootstrapDockerfileLocationFollowsDiscoveredFile(t *testing.T) {
+	tests := []struct {
+		name     string
+		jsonPath string // root からの相対パス
+		wantFile string // Dockerfile の、root からの相対パス
+	}{
+		{".devcontainer/<DIR>/", ".devcontainer/dev/devcontainer.json", ".devcontainer/dev/Dockerfile"},
+		{"ルートの .devcontainer.json", ".devcontainer.json", "Dockerfile"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeFile(t, filepath.Join(root, filepath.FromSlash(tt.jsonPath)), buildJSON)
+			// bootstrap は、.devcontainer ディレクトリが無ければ何もしない。
+			if err := os.MkdirAll(filepath.Join(root, ".devcontainer"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			be := newBootEnv(&fakeGH{latest: "v1.0.0", content: "FROM scratch\n"}, nil)
+			if code := be.app.Run([]string{"bootstrap", "--root", root}); code != 0 {
+				t.Fatalf("code=%d stderr=%s", code, be.stderr)
+			}
+			got, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(tt.wantFile)))
+			if err != nil || string(got) != "FROM scratch\n" {
+				t.Errorf("%s = %q, %v", tt.wantFile, got, err)
+			}
+		})
+	}
+}
+
+func TestBootstrapLogsWarningsAndNotices(t *testing.T) {
+	root := t.TempDir()
+	// name は、bootstrap が使わないだけ (ログに出さない)。myCustomKey は、スキーマに無い (警告)。
+	writeFile(t, filepath.Join(root, ".devcontainer", "devcontainer.json"), `{"name": "x", "myCustomKey": 1, "build": {}}`)
+	writeFile(t, filepath.Join(root, ".devcontainer.json"), `{"image": "ubuntu"}`)
+	be := newBootEnv(&fakeGH{latest: "v1.0.0", content: "A\n"}, nil)
+	if code := be.app.Run([]string{"bootstrap", "--root", root}); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, be.stderr)
+	}
+	out := be.stderr.String()
+	for _, want := range []string{
+		"Warning: .devcontainer/devcontainer.json: myCustomKey: ",
+		"multiple devcontainer.json found",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stderr に %q が無い:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "ignored") {
+		t.Errorf("使わないだけのキーは、ログに出さないはず:\n%s", out)
+	}
+	// 優先順位 1 の、.devcontainer/devcontainer.json (build) が使われる。
+	if _, err := os.Stat(filepath.Join(root, ".devcontainer", "Dockerfile")); err != nil {
+		t.Errorf("Dockerfile が無い: %v", err)
+	}
+}
+
 func TestBootstrapSkipsDockerfileWithoutBuildOnly(t *testing.T) {
 	for name, src := range map[string]string{
 		"image":      `{"image": "ubuntu"}`,

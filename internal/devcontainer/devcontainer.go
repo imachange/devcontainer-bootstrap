@@ -3,13 +3,12 @@ package devcontainer
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 
-	"github.com/imachange/devcontainer-bootstrap/internal/jsonc"
+	parser "github.com/imachange/devcontainer-parser"
 )
 
 // Spec は、devcontainer.json から読み取った内容です。
@@ -18,36 +17,73 @@ type Spec struct {
 	BuildOnly bool
 	// Dockerfile は、build.dockerfile (既定: Dockerfile)。devcontainer.json のあるディレクトリからの相対パスです。
 	Dockerfile string
+	// Path は、読み込んだ devcontainer.json のパスです (Parse では空)。
+	Path string
+	// Warnings は、devcontainer-parser の警告です (スキーマに無いキーなど)。
+	Warnings []string
+	// Notices は、探索に関する情報です (複数の候補があるときに、どれを使ったか、など)。
+	Notices []string
 }
 
-// Parse は、devcontainer.json (JSONC) を読みます。
-func Parse(src []byte) (Spec, error) {
-	top, err := jsonc.TopLevel(src)
+// ErrNotFound は、devcontainer.json が見つからないことを表します (errors.Is で判定します)。
+var ErrNotFound = parser.ErrNotFound
+
+// supportedKeys は、bootstrap が devcontainer.json から使うトップレベルのキーです。
+var supportedKeys = []string{"build", "image", "dockerComposeFile"}
+
+// Load は、root から devcontainer.json を、devcontainer-parser の優先順位で探して読みます。
+//  1. .devcontainer/devcontainer.json
+//  2. .devcontainer/<DIR>/devcontainer.json
+//  3. .devcontainer.json
+//
+// 見つからないときは、errors.Is(err, ErrNotFound) が true になるエラーを返します。
+func Load(root string) (Spec, error) {
+	res, err := parser.LoadFromDir(root, parser.WithSupportedKeys(supportedKeys...))
 	if err != nil {
 		return Spec{}, err
 	}
-	spec := Spec{Dockerfile: "Dockerfile"}
-	build, hasBuild := present(top, "build")
-	_, hasImage := present(top, "image")
-	_, hasCompose := present(top, "dockerComposeFile")
-	spec.BuildOnly = hasBuild && !hasImage && !hasCompose
-	if hasBuild {
-		var b struct {
-			Dockerfile string `json:"dockerfile"`
-		}
-		if err := json.Unmarshal(build, &b); err != nil {
-			return Spec{}, fmt.Errorf("build: %w", err)
-		}
-		if b.Dockerfile != "" {
-			spec.Dockerfile = b.Dockerfile
-		}
-	}
+	spec := fromResult(res)
+	spec.Path = res.FilePath
 	return spec, nil
 }
 
+// Parse は、devcontainer.json (JSONC) を、devcontainer-parser で読みます。
+func Parse(src []byte) (Spec, error) {
+	res, err := parser.Parse(src, parser.WithSupportedKeys(supportedKeys...))
+	if err != nil {
+		return Spec{}, err
+	}
+	return fromResult(res), nil
+}
+
+func fromResult(res *parser.Result) Spec {
+	spec := Spec{Dockerfile: "Dockerfile"}
+	_, hasBuild := present(res.UsedFields, "build")
+	_, hasImage := present(res.UsedFields, "image")
+	_, hasCompose := present(res.UsedFields, "dockerComposeFile")
+	spec.BuildOnly = hasBuild && !hasImage && !hasCompose
+	if hasBuild && res.Config.Build != nil && res.Config.Build.Dockerfile != "" {
+		spec.Dockerfile = res.Config.Build.Dockerfile
+	}
+
+	// bootstrap が使わないキーの「無視した」(INFO) は、毎回多くなるので、出さない。
+	// 出すのは、警告と、キーに紐づかない情報 (複数の候補がある、など) だけ。
+	for _, d := range res.Diagnostics {
+		switch {
+		case d.Level == parser.LevelWarning && d.Key != "":
+			spec.Warnings = append(spec.Warnings, d.Key+": "+d.Message)
+		case d.Level == parser.LevelWarning:
+			spec.Warnings = append(spec.Warnings, d.Message)
+		case d.Level == parser.LevelInfo && d.Key == "":
+			spec.Notices = append(spec.Notices, d.Message)
+		}
+	}
+	return spec
+}
+
 // present は、キーがあり、値が null でないときに、その値を返します。
-func present(top map[string]json.RawMessage, key string) (json.RawMessage, bool) {
-	raw, ok := top[key]
+func present(fields map[string][]byte, key string) ([]byte, bool) {
+	raw, ok := fields[key]
 	if !ok || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return nil, false
 	}
